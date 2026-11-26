@@ -1,0 +1,54 @@
+diff --git a/widget/uikit/components.conf b/widget/uikit/components.conf
+index 385ba2f7868b..16b795d33876 100644
+--- a/widget/uikit/components.conf
++++ b/widget/uikit/components.conf
+@@ -8,6 +8,13 @@ InitFunc = 'nsWidgetUIKitModuleCtor'
+ UnloadFunc = 'nsWidgetUIKitModuleDtor'
+ 
+ Classes = [
++    {
++        'cid': '{61b3e7bd-334a-49b3-91c8-4d0a64e4f5a0}',
++        'contract_ids': ['@mozilla.org/widget/parent/dragservice;1'],
++        'type': 'nsDragService',
++        'headers': ['/widget/uikit/nsDragService.h'],
++        'processes': ProcessSelector.MAIN_PROCESS_ONLY,
++    },
+     {
+         'cid': '{49f428e8-baf9-4ba3-b1b0-7d2fd3abbcea}',
+         'contract_ids': ['@mozilla.org/widget/parent/clipboard;1'],
+@@ -31,6 +38,15 @@ Classes = [
+         'type': 'nsIOSBridge',
+         'headers': ['/widget/uikit/IOSBridge.h'],
+     },
++    {
++        'cid': '{f0cd2511-0911-4684-bdc6-117bc98f66c8}',
++        'contract_ids': ['@mozilla.org/uriloader/external-helper-app-service;1'],
++        'interfaces': ['nsIExternalHelperAppService'],
++        'type': 'ExternalResponseService',
++        'headers': ['/widget/uikit/ExternalResponseService.h'],
++        'constructor': 'ExternalResponseService::GetSingleton',
++        'processes': ProcessSelector.MAIN_PROCESS_ONLY,
++    },
+     {
+         'cid': '{2d96b3df-c051-11d1-a827-0040959a28c9}',
+         'contract_ids': ['@mozilla.org/widget/appshell/uikit;1'],
+@@ -44,6 +60,19 @@ Classes = [
+         'type': 'nsTransferable',
+         'headers': ['/widget/nsTransferable.h'],
+     },
++    {
++        'cid': '{841387c8-72e6-484b-9296-bf6eea80d58a}',
++        'contract_ids': ['@mozilla.org/gfx/printsettings-service;1'],
++        'type': 'nsPrintSettingsServiceUIKit',
++        'headers': ['/widget/uikit/nsPrintSettingsServiceUIKit.h'],
++        'init_method': 'Init',
++    },
++    {
++        'cid': '{d3f69889-e13a-4321-980c-a39332e21f34}',
++        'contract_ids': ['@mozilla.org/gfx/devicecontextspec;1'],
++        'type': 'nsDeviceContextSpecUIKit',
++        'headers': ['/widget/uikit/nsDeviceContextUIKit.h'],
++    },
+     {
+         'cid': '{948a0023-e3a7-11d2-96cf-0060b0fb9956}',
+         'contract_ids': ['@mozilla.org/widget/htmlformatconverter;1'],

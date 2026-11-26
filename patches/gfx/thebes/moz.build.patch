@@ -1,0 +1,33 @@
+diff --git a/gfx/thebes/moz.build b/gfx/thebes/moz.build
+index fdc0eefd507d..c00885dabe78 100644
+--- a/gfx/thebes/moz.build
++++ b/gfx/thebes/moz.build
+@@ -116,6 +116,20 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
+         "gfxQuartzNativeDrawing.cpp",
+         "gfxQuartzSurface.cpp",
+     ]
++    if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
++        EXPORTS.mozilla.gfx += [
++            "PrintTargetCG.h",
++        ]
++        SOURCES += [
++            "PrintTargetCG.mm",
++        ]
++    else:
++        EXPORTS.mozilla.gfx += [
++            "PrintTargetUIKit.h",
++        ]
++        SOURCES += [
++            "PrintTargetUIKit.mm",
++        ]
+ 
+     SOURCE_HEADERS += [
+         "CoreTextFontList.h",
+@@ -240,6 +254,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
+     ]
+ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
+     UNIFIED_SOURCES += [
++        "gfxUIKitVsyncSource.mm",
+         "IOSPlatformFontList.mm",
+     ]
+ 

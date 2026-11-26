@@ -1,0 +1,22 @@
+diff --git a/toolkit/components/geolocation/GeolocationService.cpp b/toolkit/components/geolocation/GeolocationService.cpp
+index 28f8b38e2fde..7365db55c0bb 100644
+--- a/toolkit/components/geolocation/GeolocationService.cpp
++++ b/toolkit/components/geolocation/GeolocationService.cpp
+@@ -20,7 +20,7 @@
+ #  include "mozilla/WidgetUtilsGtk.h"
+ #endif
+ 
+-#ifdef MOZ_WIDGET_COCOA
++#if defined(MOZ_WIDGET_COCOA) || defined(MOZ_WIDGET_UIKIT)
+ #  include "CoreLocationLocationProvider.h"
+ #endif
+ 
+@@ -109,7 +109,7 @@ nsresult GeolocationService::Init(bool aIsOverride) {
+ #  endif
+ #endif
+ 
+-#ifdef MOZ_WIDGET_COCOA
++#if defined(MOZ_WIDGET_COCOA) || defined(MOZ_WIDGET_UIKIT)
+   if (Preferences::GetBool("geo.provider.use_corelocation", true)) {
+     mProvider = new CoreLocationLocationProvider();
+   }

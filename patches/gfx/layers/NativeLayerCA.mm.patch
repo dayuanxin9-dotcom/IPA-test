@@ -1,0 +1,161 @@
+diff --git a/gfx/layers/NativeLayerCA.mm b/gfx/layers/NativeLayerCA.mm
+index cc1bd339e032..02074c23d57e 100644
+--- a/gfx/layers/NativeLayerCA.mm
++++ b/gfx/layers/NativeLayerCA.mm
+@@ -249,6 +249,15 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+   }
+ }
+ 
++#ifdef XP_IOS
++void NativeLayerRootCA::RetainLayerUntilNextScreenCommit(NativeLayer* aLayer) {
++  MutexAutoLock lock(mMutex);
++  RefPtr<NativeLayerCA> layerCA = aLayer->AsNativeLayerCA();
++  MOZ_RELEASE_ASSERT(layerCA);
++  mLayersRetainedUntilNextScreenCommit.AppendElement(std::move(layerCA));
++}
++#endif
++
+ void NativeLayerRootCA::SetBackingScale(float aBackingScale) {
+   MutexAutoLock lock(mMutex);
+ 
+@@ -280,8 +289,25 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+ }
+ 
+ bool NativeLayerRootCA::CommitToScreen() {
++#if defined(MOZ_WIDGET_UIKIT)
++  AutoCATransaction transaction;
++  ReleasableMutexAutoLock layerUpdateLock(mLayerUpdateMutex);
++#endif
++
+   MutexAutoLock lock(mMutex);
+ 
++#ifdef MOZ_WIDGET_UIKIT
++  if (NS_IsMainThread()) {
++    mMainThreadCommitScheduled = false;
++  } else if (mOnscreenCommitData && mMainThreadCommitCallback) {
++    if (!mMainThreadCommitScheduled) {
++      mMainThreadCommitScheduled = true;
++      mMainThreadCommitCallback();
++    }
++    return false;
++  }
++#endif
++
+   if (!NS_IsMainThread() && mOffMainThreadCommitsSuspended) {
+     mCommitPending = true;
+     return false;
+@@ -292,6 +318,10 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+                        mWindowIsFullscreen);
+   mMutatedOnscreenLayerStructure = false;
+ 
++#ifdef XP_IOS
++  mLayersRetainedUntilNextScreenCommit.Clear();
++#endif
++
+   mCommitPending = false;
+ 
+   if (StaticPrefs::gfx_webrender_debug_dump_native_layer_tree_to_file()) {
+@@ -325,6 +355,19 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+     EmitTelemetryForVideoLowPower(videoLowPower);
+   }
+ 
++#ifdef MOZ_WIDGET_UIKIT
++  if (mOnscreenCommitData) {
++    auto data = mOnscreenCommitData.extract();
++    auto callback = mOnscreenCommitCallback;
++    MutexAutoUnlock unlock(mMutex);
++    layerUpdateLock.Unlock();
++    if (callback) {
++      MOZ_ASSERT(NS_IsMainThread());
++      callback(std::move(data));
++    }
++  }
++#endif
++
+   return true;
+ }
+ 
+@@ -365,6 +408,26 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+   mMutatedOffscreenLayerStructure = false;
+ }
+ 
++#ifdef MOZ_WIDGET_UIKIT
++void NativeLayerRootCA::SetOnscreenCommitData(mozilla::ipc::ByteBuf&& aData) {
++  MutexAutoLock lock(mMutex);
++  mOnscreenCommitData = Some(std::move(aData));
++}
++
++void NativeLayerRootCA::SetOnscreenCommitCallback(
++    std::function<void(mozilla::ipc::ByteBuf&&)> aCallback) {
++  MOZ_ASSERT(NS_IsMainThread());
++  mOnscreenCommitCallback = std::move(aCallback);
++}
++
++void NativeLayerRootCA::SetMainThreadCommitCallback(
++    std::function<void()> aCallback) {
++  MOZ_ASSERT(NS_IsMainThread());
++  MutexAutoLock lock(mMutex);
++  mMainThreadCommitCallback = std::move(aCallback);
++}
++#endif
++
+ void NativeLayerRootCA::SetMutatedLayerStructure() {
+   mMutatedOnscreenLayerStructure = true;
+   mMutatedOffscreenLayerStructure = true;
+@@ -433,6 +496,19 @@ static void EmitTelemetryForVideoLowPower(VideoLowPowerType aVideoLowPower) {
+   if (mustRebuild) {
+     aRootCALayer.sublayers = sublayers;
+   }
++
++#ifdef XP_IOS
++  if (aRepresentation == WhichRepresentation::ONSCREEN) {
++    // HandleLayerDestroyed() removes the layer from mKnownLayers before
++    // CommitToScreen() updates the CALayer tree. The retained NativeLayerCA
++    // gives this commit access to the removed layer so it can set
++    // mContentCALayer.contents to nil.
++    for (const auto& layer : mLayersRetainedUntilNextScreenCommit) {
++      MOZ_ASSERT(!aSublayers.Contains(layer));
++      layer->ClearOnscreenSurfaceContents();
++    }
++  }
++#endif
+ }
+ 
+ SnapshotterCADelegate::~SnapshotterCADelegate() = default;
+@@ -1533,6 +1609,14 @@ CGColorRef CGColorCreateForDeviceColor(const gfx::DeviceColor& aColor) {
+   return updateSucceeded;
+ }
+ 
++#ifdef XP_IOS
++void NativeLayerCA::ClearOnscreenSurfaceContents() {
++  MutexAutoLock lock(mMutex);
++  GetRepresentation(WhichRepresentation::ONSCREEN).mContentCALayer.contents =
++      nil;
++}
++#endif
++
+ CALayer* NativeLayerCA::UnderlyingCALayer(WhichRepresentation aRepresentation) {
+   MutexAutoLock lock(mMutex);
+   return GetRepresentation(aRepresentation).UnderlyingCALayer();
+@@ -1545,7 +1629,8 @@ CGColorRef CGColorCreateForDeviceColor(const gfx::DeviceColor& aColor) {
+   AVSampleBufferDisplayLayer* videoLayer =
+       (AVSampleBufferDisplayLayer*)mContentCALayer;
+ 
+-  if (@available(macOS 11.0, iOS 14.0, *)) {
++  if ([videoLayer
++          respondsToSelector:@selector(requiresFlushToResumeDecoding)]) {
+     if (videoLayer.requiresFlushToResumeDecoding) {
+       [videoLayer flush];
+     }
+@@ -1651,6 +1736,11 @@ CGColorRef CGColorCreateForDeviceColor(const gfx::DeviceColor& aColor) {
+   if (osValue != noErr) {
+     MOZ_ASSERT(sampleBuffer == nullptr,
+                "Failed call shouldn't allocate memory.");
++    // A reconstructed IOSurface can transiently fail format validation. The
++    // next surface remains usable by the same display layer.
++    if (osValue == kCMSampleBufferError_InvalidMediaFormat) {
++      return true;
++    }
+ #ifdef NIGHTLY_BUILD
+     if (StaticPrefs::gfx_core_animation_specialize_video_log()) {
+       NSLog(@"VIDEO_LOG: EnqueueSurface failed on allocating sample buffer.");

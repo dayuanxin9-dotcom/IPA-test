@@ -1,0 +1,24 @@
+diff --git a/dom/ipc/ContentParent.h b/dom/ipc/ContentParent.h
+index 6f7d40c2a898..bffbb7be24c0 100644
+--- a/dom/ipc/ContentParent.h
++++ b/dom/ipc/ContentParent.h
+@@ -638,6 +638,9 @@ class ContentParent final : public PContentParent,
+       nsIRemoteTab::NavigationType aNavigationType,
+       const CancelContentJSOptions& aCancelContentJSOptions);
+ 
++#ifdef XP_IOS
++  void SetProcessBackground(bool aIsBackground);
++#endif
+   void SetMainThreadQoSPriority(nsIThread::QoSPriority aQoSPriority);
+ 
+   // This is called when we are about to load a document for a content process.
+@@ -731,6 +734,9 @@ class ContentParent final : public PContentParent,
+ 
+   bool WasA11yEverActivated() const { return mWasA11yEverActivated; }
+ 
++  mozilla::ipc::IPCResult RecvNotifyGPUProcessLost(
++      const uint64_t& aProcessToken);
++
+  protected:
+   bool CheckBrowsingContextEmbedder(CanonicalBrowsingContext* aBC,
+                                     const char* aOperation) const;

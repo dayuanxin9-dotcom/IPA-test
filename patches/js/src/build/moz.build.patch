@@ -1,0 +1,14 @@
+diff --git a/js/src/build/moz.build b/js/src/build/moz.build
+index 0cb0a2a5d35c..5e7cd05d427f 100644
+--- a/js/src/build/moz.build
++++ b/js/src/build/moz.build
+@@ -90,9 +90,6 @@ if CONFIG["OS_ARCH"] == "WINNT":
+ 
+ OS_LIBS += CONFIG["LIBATOMIC_LIBS"]
+ 
+-if CONFIG["TARGET_OS"] == "iOS":
+-    OS_LIBS += ["-framework BrowserEngineCore"]
+-
+ OS_LIBS += CONFIG["REALTIME_LIBS"]
+ 
+ NO_EXPAND_LIBS = True

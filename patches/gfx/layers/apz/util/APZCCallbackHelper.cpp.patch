@@ -1,0 +1,30 @@
+diff --git a/gfx/layers/apz/util/APZCCallbackHelper.cpp b/gfx/layers/apz/util/APZCCallbackHelper.cpp
+index 99a9c48c2b96..fa31479e6e0f 100644
+--- a/gfx/layers/apz/util/APZCCallbackHelper.cpp
++++ b/gfx/layers/apz/util/APZCCallbackHelper.cpp
+@@ -164,10 +164,15 @@ static DisplayPortMargins ScrollFrame(nsIContent* aContent,
+     sf->SetScrollableByAPZ(!aRequest.IsScrollInfoLayer());
+     if (sf->IsRootScrollFrameOfDocument()) {
+       if (!APZCCallbackHelper::IsScrollInProgress(sf)) {
++        // APZ's visual viewport includes the toolbar covering its top, but
++        // the page's visual viewport starts below it.
++        const CSSPoint visualViewportOffset =
++            aRequest.GetVisualScrollOffset() +
++            CSSPoint(0, aRequest.GetObscuredTopInset());
+         APZCCH_LOG("Setting VV offset to %s\n",
+-                   ToString(aRequest.GetVisualScrollOffset()).c_str());
++                   ToString(visualViewportOffset).c_str());
+         if (sf->SetVisualViewportOffset(
+-                CSSPoint::ToAppUnits(aRequest.GetVisualScrollOffset()),
++                CSSPoint::ToAppUnits(visualViewportOffset),
+                 /* aRepaint = */ false)) {
+           // sf can't be destroyed if SetVisualViewportOffset returned true.
+           sf->MarkEverScrolled();
+@@ -407,6 +412,7 @@ void APZCCallbackHelper::UpdateRootFrame(const RepaintRequest& aRequest) {
+   SetDisplayPortMargins(presShell, content, displayPortMargins,
+                         aRequest.CalculateCompositedSizeInCssPixels());
+   SetPaintRequestTime(content, aRequest.GetPaintRequestTime());
++  presShell->SetFixedPositionMargins(aRequest.GetFixedPositionMargins());
+ }
+ 
+ void APZCCallbackHelper::UpdateSubFrame(const RepaintRequest& aRequest) {

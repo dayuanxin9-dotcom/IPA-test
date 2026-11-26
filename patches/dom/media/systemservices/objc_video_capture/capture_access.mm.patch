@@ -1,0 +1,116 @@
+diff --git a/dom/media/systemservices/objc_video_capture/capture_access.mm b/dom/media/systemservices/objc_video_capture/capture_access.mm
+new file mode 100644
+index 000000000000..a5f1f77db87a
+--- /dev/null
++++ b/dom/media/systemservices/objc_video_capture/capture_access.mm
+@@ -0,0 +1,110 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
++ * You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++/* This source code is introduced during the work of an iOS 13+ browser
++ * https://github.com/minh-ton/reynard-browser in Feb 2026. */
++
++#include "capture_access.h"
++
++#import <AVFoundation/AVFoundation.h>
++
++#include "mozilla/Assertions.h"
++#include "nsString.h"
++#include "nsThreadUtils.h"
++
++using mozilla::camera::CamerasAccessStatus;
++using mozilla::camera::CaptureAccessPromise;
++
++namespace {
++
++RefPtr<CaptureAccessPromise> RequestMediaAccess(AVMediaType aMediaType) {
++  MOZ_ASSERT(NS_IsMainThread());
++
++  switch ([AVCaptureDevice authorizationStatusForMediaType:aMediaType]) {
++    case AVAuthorizationStatusAuthorized:
++      return CaptureAccessPromise::CreateAndResolve(
++          CamerasAccessStatus::Granted, __func__);
++    case AVAuthorizationStatusDenied:
++    case AVAuthorizationStatusRestricted:
++      return CaptureAccessPromise::CreateAndResolve(
++          CamerasAccessStatus::Rejected, __func__);
++    case AVAuthorizationStatusNotDetermined: {
++      RefPtr<CaptureAccessPromise::Private> promise =
++          new CaptureAccessPromise::Private(__func__);
++      [AVCaptureDevice
++          requestAccessForMediaType:aMediaType
++                  completionHandler:^(BOOL granted) {
++                    dispatch_async(dispatch_get_main_queue(), ^{
++                      promise->Resolve(granted ? CamerasAccessStatus::Granted
++                                               : CamerasAccessStatus::Rejected,
++                                       __func__);
++                    });
++                  }];
++      return promise;
++    }
++  }
++
++  return CaptureAccessPromise::CreateAndResolve(CamerasAccessStatus::Error,
++                                                __func__);
++}
++
++}  // namespace
++
++RefPtr<CaptureAccessPromise> mozilla::camera::RequestAVCaptureAccess(
++    bool aRequestCamera, bool aRequestMicrophone) {
++  if (!aRequestCamera && !aRequestMicrophone) {
++    return CaptureAccessPromise::CreateAndResolve(CamerasAccessStatus::Granted,
++                                                  __func__);
++  }
++
++  if (!NS_IsMainThread()) {
++    return InvokeAsync(GetMainThreadSerialEventTarget(), __func__,
++                       [aRequestCamera, aRequestMicrophone]() {
++                         return RequestAVCaptureAccess(aRequestCamera,
++                                                       aRequestMicrophone);
++                       });
++  }
++
++  if (!aRequestCamera) {
++    return RequestMediaAccess(AVMediaTypeAudio);
++  }
++
++  RefPtr<CaptureAccessPromise> cameraAccess =
++      RequestMediaAccess(AVMediaTypeVideo);
++  if (!aRequestMicrophone) {
++    return cameraAccess;
++  }
++
++  return cameraAccess->Then(
++      GetMainThreadSerialEventTarget(), __func__,
++      [](const CaptureAccessPromise::ResolveOrRejectValue& aResult) {
++        MOZ_ASSERT(aResult.IsResolve());
++        CamerasAccessStatus status = aResult.ResolveValue();
++        if (status != CamerasAccessStatus::Granted) {
++          return CaptureAccessPromise::CreateAndResolve(status, __func__);
++        }
++        return RequestMediaAccess(AVMediaTypeAudio);
++      });
++}
++
++mozilla::camera::CaptureDeviceFacingMode
++mozilla::camera::GetAVCaptureDeviceFacingMode(const nsACString& aUniqueId) {
++  NSString* uniqueId =
++      [NSString stringWithUTF8String:PromiseFlatCString(aUniqueId).get()];
++  for (AVCaptureDevice* device in
++       [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo]) {
++    if (![device.uniqueID isEqualToString:uniqueId]) {
++      continue;
++    }
++    switch (device.position) {
++      case AVCaptureDevicePositionFront:
++        return CaptureDeviceFacingMode::User;
++      case AVCaptureDevicePositionBack:
++        return CaptureDeviceFacingMode::Environment;
++      case AVCaptureDevicePositionUnspecified:
++        return CaptureDeviceFacingMode::None;
++    }
++  }
++  return CaptureDeviceFacingMode::None;
++}

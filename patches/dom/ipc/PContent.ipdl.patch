@@ -1,0 +1,35 @@
+diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
+index 3843ba4176a1..777fd3b0aaa9 100644
+--- a/dom/ipc/PContent.ipdl
++++ b/dom/ipc/PContent.ipdl
+@@ -579,6 +579,10 @@ parent:
+     async UpdateRemotePrintSettings(MaybeDiscardedBrowsingContext aBc,
+                                     PrintData aPrintData);
+ 
++    // Allow content process to report compositor bridge abnormal
++    // shutdown with the active GPU process token.
++    [Priority=control] async NotifyGPUProcessLost(uint64_t aProcessToken);
++
+     async PExtensions();
+ 
+ child:
+@@ -612,7 +616,8 @@ child:
+       Endpoint<PImageBridgeChild> imageBridge,
+       Endpoint<PVRManagerChild> vr,
+       Endpoint<PRemoteMediaManagerChild> video,
+-      uint32_t[] namespaces);
++      uint32_t[] namespaces,
++      uint64_t processToken);
+ 
+     // Re-create the rendering stack using the given endpoints. This is sent
+     // after the compositor process has crashed. The new endpoints may be to a
+@@ -622,7 +627,8 @@ child:
+       Endpoint<PImageBridgeChild> bridge,
+       Endpoint<PVRManagerChild> vr,
+       Endpoint<PRemoteMediaManagerChild> video,
+-      uint32_t[] namespaces);
++      uint32_t[] namespaces,
++      uint64_t processToken);
+ 
+     async NetworkLinkTypeChange(uint32_t type);
+     async SocketProcessCrashed();

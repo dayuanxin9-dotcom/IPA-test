@@ -1,0 +1,51 @@
+diff --git a/modules/libpref/init/all.js b/modules/libpref/init/all.js
+index fe38d0281a27..dc431f5ead76 100644
+--- a/modules/libpref/init/all.js
++++ b/modules/libpref/init/all.js
+@@ -66,6 +66,10 @@ pref("security.crash_tracking.js_load_1.maxCrashes", 1);
+ 
+ pref("general.useragent.compatMode.firefox", false);
+ 
++// Reduce GeckoView logging noise because the default "Debug" level
++// just makes debugging near to impossible.
++pref("geckoview.logging", "Warn");
++
+ pref("general.config.obscure_value", 13); // for MCD .cfg files
+ 
+ // Whether middle button click with a modifier key starts to autoscroll or
+@@ -320,7 +324,7 @@ pref("media.videocontrols.keyboard-tab-to-all-controls", true);
+ 
+   pref("media.peerconnection.sctp.default_max_streams", 2048);
+ 
+-#if defined(XP_MACOSX)
++#if defined(XP_MACOSX) || defined(XP_IOS)
+   pref("media.getusermedia.audio.processing.platform.enabled", true);
+ #else
+   pref("media.getusermedia.audio.processing.platform.enabled", false);
+@@ -1871,7 +1875,7 @@ pref("dom.ipc.processCount.privilegedabout", 1);
+ pref("dom.ipc.processCount.privilegedmozilla", 1);
+ 
+ // Maximum number of isolated content processes per-origin.
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(XP_IOS)
+ pref("dom.ipc.processCount.webIsolated", 1);
+ #else
+ pref("dom.ipc.processCount.webIsolated", 4);
+@@ -2652,7 +2656,7 @@ pref("font.size.monospace.x-math", 13);
+   pref("helpers.private_mailcap_file", "~/.mailcap");
+ #endif // ANDROID
+ 
+-#if !defined(ANDROID) && !defined(XP_MACOSX) && defined(XP_UNIX)
++#if !defined(ANDROID) && !defined(XP_IOS) && !defined(XP_MACOSX) && defined(XP_UNIX)
+   // Handled differently under Mac/Windows
+   pref("network.protocol-handler.warn-external.file", false);
+   pref("browser.drag_out_of_frame_style", 1);
+@@ -2833,7 +2837,7 @@ pref("font.size.monospace.x-math", 13);
+   // snooper.  So, let's use true for its default value.
+   pref("intl.ime.hack.uim.using_key_snooper", true);
+ 
+-#endif // !ANDROID && !XP_MACOSX && XP_UNIX
++#endif // !ANDROID && !XP_IOS && !XP_MACOSX && XP_UNIX
+ 
+ #if defined(ANDROID)
+ 

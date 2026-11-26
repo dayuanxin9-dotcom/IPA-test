@@ -1,0 +1,94 @@
+diff --git a/mobile/shared/modules/geckoview/GeckoViewContent.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewContent.sys.mjs
+index 635806ea1724..0c5b324c7347 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewContent.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewContent.sys.mjs
+@@ -3,6 +3,7 @@
+  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ import { GeckoViewModule } from "resource://gre/modules/GeckoViewModule.sys.mjs";
++import { gAutofillManager } from "resource://gre/modules/GeckoViewAutofill.sys.mjs";
+ 
+ export class GeckoViewContent extends GeckoViewModule {
+   onInit() {
+@@ -26,6 +27,11 @@ export class GeckoViewContent extends GeckoViewModule {
+       "GeckoView:GetWebCompatInfo",
+       "GeckoView:SendGleanBrokenSiteReport",
+       "GeckoView:SendMoreWebCompatInfo",
++
++      // New events
++      "GeckoView:Autofill:FillOneTimeCode",
++      "GeckoView:GetFocusedInputMetrics",
++      "GeckoView:FetchImage",
+     ]);
+   }
+ 
+@@ -173,6 +179,19 @@ export class GeckoViewContent extends GeckoViewModule {
+   onEvent(aEvent, aData, aCallback) {
+     debug`onEvent: event=${aEvent}, data=${aData}`;
+ 
++    // New events
++    switch (aEvent) {
++      case "GeckoView:Autofill:FillOneTimeCode":
++        this._fillOneTimeCode(aData, aCallback);
++        return;
++      case "GeckoView:GetFocusedInputMetrics":
++        this._getFocusedInputMetrics(aCallback);
++        return;
++      case "GeckoView:FetchImage":
++        this._fetchImage(aData, aCallback);
++        return;
++    }
++
+     switch (aEvent) {
+       case "GeckoViewContent:ExitFullScreen":
+         this.browser.ownerDocument.exitFullscreen();
+@@ -491,6 +510,49 @@ export class GeckoViewContent extends GeckoViewModule {
+     aCallback.onSuccess(await this.actor.containsFormData());
+   }
+ 
++  async _fillOneTimeCode(aData, aCallback) {
++    try {
++      const result = await gAutofillManager.fillOneTimeCode(
++        aData.sessionId,
++        aData.fieldUuid,
++        aData.value
++      );
++      aCallback.onSuccess(result ?? false);
++    } catch (error) {
++      aCallback.onError(`Cannot fill one-time code, error: ${error}`);
++    }
++  }
++
++  async _getFocusedInputMetrics(aCallback) {
++    try {
++      if (this.window.windowUtils.isMozAfterPaintPending) {
++        await new Promise(resolve => {
++          this.window.addEventListener("MozAfterPaint", resolve, {
++            capture: true,
++            once: true,
++          });
++        });
++      }
++      const focusedContext = Services.focus.focusedContentBrowsingContext;
++      if (focusedContext?.top !== this.browser.browsingContext) {
++        aCallback.onSuccess(null);
++        return;
++      }
++      const actor = focusedContext.currentWindowGlobal?.getActor("GeckoViewContent");
++      aCallback.onSuccess(actor ? await actor.sendQuery("GetFocusedInputMetrics") : null);
++    } catch (error) {
++      aCallback.onError(`Cannot get focused input metrics, error: ${error}`);
++    }
++  }
++
++  async _fetchImage(aData, aCallback) {
++    try {
++      aCallback.onSuccess(await this.actor.sendQuery("FetchImage", aData));
++    } catch (error) {
++      aCallback.onError(`Cannot fetch image: ${error}`);
++    }
++  }
++
+   _findInPage(aData, aCallback) {
+     debug`findInPage: data=${aData} callback=${aCallback && "non-null"}`;
+ 

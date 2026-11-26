@@ -1,0 +1,14 @@
+diff --git a/gfx/layers/wr/IpcResourceUpdateQueue.h b/gfx/layers/wr/IpcResourceUpdateQueue.h
+index d6dd9cfd478a..e1d3a1cc3b68 100644
+--- a/gfx/layers/wr/IpcResourceUpdateQueue.h
++++ b/gfx/layers/wr/IpcResourceUpdateQueue.h
+@@ -165,7 +165,8 @@ class IpcResourceUpdateQueue {
+                   uint32_t aIndex);
+ 
+   bool AddFontDescriptor(wr::FontKey aKey, mozilla::Range<uint8_t> aBytes,
+-                         uint32_t aIndex);
++                         uint32_t aIndex, bool aIsSystemFont,
++                         uint32_t aSystemFontTraits);
+ 
+   void DeleteFont(wr::FontKey aKey);
+ 

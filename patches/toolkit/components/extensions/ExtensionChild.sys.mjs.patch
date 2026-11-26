@@ -1,0 +1,17 @@
+diff --git a/toolkit/components/extensions/ExtensionChild.sys.mjs b/toolkit/components/extensions/ExtensionChild.sys.mjs
+index c597806f3985..1a04b6c81c7b 100644
+--- a/toolkit/components/extensions/ExtensionChild.sys.mjs
++++ b/toolkit/components/extensions/ExtensionChild.sys.mjs
+@@ -238,7 +238,11 @@ export class MessageEvent extends SimpleEventAPI {
+ }
+ 
+ function holdMessage(name, anonymizedName, data, native = null) {
+-  if (native && AppConstants.platform !== "android") {
++  if (
++    native &&
++    AppConstants.platform !== "android" &&
++    AppConstants.platform !== "ios"
++  ) {
+     data = lazy.NativeApp.encodeMessage(native.context, data);
+   }
+   return new StructuredCloneHolder(name, anonymizedName, data);

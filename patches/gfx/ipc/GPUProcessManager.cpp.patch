@@ -1,0 +1,114 @@
+diff --git a/gfx/ipc/GPUProcessManager.cpp b/gfx/ipc/GPUProcessManager.cpp
+index 4364cc84482a..5d7b54ff3fba 100644
+--- a/gfx/ipc/GPUProcessManager.cpp
++++ b/gfx/ipc/GPUProcessManager.cpp
+@@ -65,9 +65,11 @@
+ 
+ #if defined(MOZ_WIDGET_ANDROID)
+ #  include "mozilla/java/SurfaceControlManagerWrappers.h"
+-#  include "mozilla/layers/UiCompositorControllerChild.h"
+ #  include "mozilla/widget/AndroidUiThread.h"
+ #endif  // defined(MOZ_WIDGET_ANDROID)
++#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_UIKIT)
++#  include "mozilla/layers/UiCompositorControllerChild.h"
++#endif
+ 
+ #if defined(XP_WIN)
+ #  include "gfxWindowsPlatform.h"
+@@ -558,7 +560,7 @@ bool GPUProcessManager::EnsureVRManager() {
+   return true;
+ }
+ 
+-#if defined(MOZ_WIDGET_ANDROID)
++#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_UIKIT)
+ RefPtr<UiCompositorControllerChild>
+ GPUProcessManager::CreateUiCompositorController(nsIWidget* aWidget,
+                                                 const LayersId aId) {
+@@ -584,12 +586,14 @@ GPUProcessManager::CreateUiCompositorController(nsIWidget* aWidget,
+           mProcessToken, std::move(childPipe), aWidget);
+ 
+   if (result) {
++#  if defined(MOZ_WIDGET_ANDROID)
+     result->SetCompositorSurfaceManager(
+         mProcess->GetCompositorSurfaceManager());
++#  endif
+   }
+   return result;
+ }
+-#endif  // defined(MOZ_WIDGET_ANDROID)
++#endif
+ 
+ void GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost) {
+   MOZ_ASSERT(mProcess && mProcess == aHost);
+@@ -625,6 +629,10 @@ void GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost) {
+   if (mAppInForeground) {
+     SetProcessIsForeground();
+   }
++#elif defined(XP_IOS)
++  if (!mAppInForeground) {
++    SetProcessIsForeground();
++  }
+ #endif
+ 
+   // Set a high priority for the newly-created gpu process.
+@@ -1326,7 +1334,7 @@ already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
+   LAYERTREE_LOG("Created {} compositor for root layer tree {:x}",
+                 mGPUChild ? "remote" : "in-process", layerTreeId);
+ 
+-#if defined(MOZ_WIDGET_ANDROID)
++#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_UIKIT)
+   if (session) {
+     // Nothing to do if controller gets a nullptr
+     auto controller =
+@@ -1334,7 +1342,7 @@ already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
+     MOZ_ASSERT(controller);
+     session->SetUiCompositorControllerChild(std::move(controller));
+   }
+-#endif  // defined(MOZ_WIDGET_ANDROID)
++#endif
+ 
+   *aRetryOut = false;
+   return session.forget();
+@@ -1415,7 +1423,9 @@ bool GPUProcessManager::CreateContentBridges(
+     ipc::Endpoint<PImageBridgeChild>* aOutImageBridge,
+     ipc::Endpoint<PVRManagerChild>* aOutVRBridge,
+     ipc::Endpoint<PRemoteMediaManagerChild>* aOutVideoManager,
+-    dom::ContentParentId aChildId, nsTArray<uint32_t>* aNamespaces) {
++    dom::ContentParentId aChildId, nsTArray<uint32_t>* aNamespaces,
++    uint64_t* aOutProcessToken) {
++  MOZ_ASSERT(aOutProcessToken);
+   const uint32_t compositorManagerNamespace = AllocateNamespace();
+   const uint32_t compositorBridgeNamespace = AllocateNamespace();
+   const uint32_t imageBridgeNamespace = AllocateNamespace();
+@@ -1431,6 +1441,7 @@ bool GPUProcessManager::CreateContentBridges(
+                   aChildId);
+     return false;
+   }
++  *aOutProcessToken = mProcessToken;
+   // RemoteMediaManager is only supported in the GPU process, so we allow this
+   // to be fallible.
+   CreateContentRemoteMediaManager(aOtherProcess, aChildId, aOutVideoManager);
+@@ -1875,7 +1886,7 @@ void GPUProcessManager::SetAppInForeground(bool aInForeground) {
+   }
+ 
+   mAppInForeground = aInForeground;
+-#if defined(XP_WIN)
++#if defined(XP_WIN) || defined(XP_IOS)
+   SetProcessIsForeground();
+ #endif
+ 
+@@ -1925,6 +1936,14 @@ void GPUProcessManager::SetProcessIsForeground() {
+   setInformationProcess(processHandle, NtProcessInformationForeground,
+                         (PVOID)&foreground, sizeof(foreground));
+ }
++#elif defined(XP_IOS)
++void GPUProcessManager::SetProcessIsForeground() {
++  if (!mGPUChild) {
++    return;
++  }
++
++  (void)mGPUChild->SendSetProcessBackground(!mAppInForeground);
++}
+ #endif
+ 
+ RefPtr<PGPUChild::TestTriggerMetricsPromise>

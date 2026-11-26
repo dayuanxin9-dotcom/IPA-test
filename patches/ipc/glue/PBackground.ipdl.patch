@@ -1,0 +1,15 @@
+diff --git a/ipc/glue/PBackground.ipdl b/ipc/glue/PBackground.ipdl
+index e9deb87ebccb..33c0ffe8404a 100644
+--- a/ipc/glue/PBackground.ipdl
++++ b/ipc/glue/PBackground.ipdl
+@@ -298,7 +298,9 @@ parent:
+ 
+   async PFetch();
+ 
+-  async RequestCameraAccess(bool aAllowPermissionRequest) returns (CamerasAccessStatus rv);
++  async RequestCameraAccess(bool aAllowPermissionRequest, bool aRequestCamera,
++                            bool aRequestMicrophone)
++      returns (CamerasAccessStatus rv);
+ 
+ child:
+   async PCache();

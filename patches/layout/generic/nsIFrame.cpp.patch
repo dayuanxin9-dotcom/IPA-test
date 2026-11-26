@@ -1,0 +1,48 @@
+diff --git a/layout/generic/nsIFrame.cpp b/layout/generic/nsIFrame.cpp
+index 69a270cf4ea7..e3d83d98819c 100644
+--- a/layout/generic/nsIFrame.cpp
++++ b/layout/generic/nsIFrame.cpp
+@@ -3485,6 +3485,9 @@ void nsIFrame::BuildDisplayListForStackingContext(
+   const bool useFixedPosition =
+       disp->mPosition == StylePositionProperty::Fixed &&
+       aBuilder->IsPaintingToWindow() && !IsMenuPopupFrame() &&
++      (aBuilder->IsInViewTransitionCapture() ||
++       PresContext()->Document()->GetActiveViewTransition() ||
++       !AnchorPositioningUtils::GetAnchorThatFrameScrollsWith(this, aBuilder)) &&
+       (DisplayPortUtils::IsFixedPosFrameInDisplayPort(this) ||
+        BuilderHasScrolledClip(aBuilder));
+ 
+@@ -5092,7 +5095,33 @@ bool nsIFrame::IsSelectable(StyleUserSelect* aSelectStyle) const {
+   return style != StyleUserSelect::None;
+ }
+ 
++#if defined(XP_IOS)
++static bool IsInNativeTextSelectionContext(const nsIFrame* aFrame) {
++  nsIContent* content = aFrame->GetContent();
++  if (!content) {
++    return false;
++  }
++
++  nsIContent* control =
++      content->IsInNativeAnonymousSubtree()
++          ? content->GetClosestNativeAnonymousSubtreeRootParentOrHost()
++          : content;
++  if (auto* textControl = TextControlElement::FromNodeOrNull(control)) {
++    return textControl->IsSingleLineTextControlOrTextArea() &&
++           !textControl->IsDisabled();
++  }
++
++  return content->GetInclusiveEditableAncestor() != nullptr;
++}
++#endif
++
+ bool nsIFrame::ShouldPaintNormalSelection() const {
++#if defined(XP_IOS)
++  if (IsInNativeTextSelectionContext(this)) {
++    return false;
++  }
++#endif
++
+   if (IsSelectable()) {
+     // NOTE: Ideally, we should return false if display selection is "OFF".
+     // However, here is a hot path at painting.  Therefore, it should be checked

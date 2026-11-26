@@ -1,0 +1,35 @@
+diff --git a/dom/media/GraphRunner.cpp b/dom/media/GraphRunner.cpp
+index 37987aa3e61c..48f9da01a4c6 100644
+--- a/dom/media/GraphRunner.cpp
++++ b/dom/media/GraphRunner.cpp
+@@ -12,6 +12,7 @@
+ #include "mozilla/dom/WorkletThread.h"
+ #include "nsISupportsImpl.h"
+ #include "nsISupportsPriority.h"
++#include "nsThreadUtils.h"
+ #include "prthread.h"
+ #ifdef MOZ_WIDGET_ANDROID
+ #  include "AndroidProcess.h"
+@@ -42,10 +43,6 @@ already_AddRefed<GraphRunner> GraphRunner::Create(MediaTrackGraphImpl* aGraph) {
+           "GraphRunner", getter_AddRefs(thread), nullptr, options)))) {
+     return nullptr;
+   }
+-  nsCOMPtr<nsISupportsPriority> supportsPriority = do_QueryInterface(thread);
+-  MOZ_ASSERT(supportsPriority);
+-  MOZ_ALWAYS_SUCCEEDS(
+-      supportsPriority->SetPriority(nsISupportsPriority::PRIORITY_HIGHEST));
+ 
+   return do_AddRef(new GraphRunner(aGraph, thread.forget()));
+ }
+@@ -118,6 +115,11 @@ void PromoteRenderingThreadAndroid() {
+ #endif  // MOZ_WIDGET_ANDROID
+ 
+ NS_IMETHODIMP GraphRunner::Run() {
++  nsCOMPtr<nsISupportsPriority> supportsPriority = do_QueryInterface(mThread);
++  MOZ_ASSERT(supportsPriority);
++  MOZ_ALWAYS_SUCCEEDS(
++      supportsPriority->SetPriority(nsISupportsPriority::PRIORITY_HIGHEST));
++
+ #ifndef XP_LINUX
+   atp_handle* handle =
+       atp_promote_current_thread_to_real_time(0, mGraph->GraphRate());

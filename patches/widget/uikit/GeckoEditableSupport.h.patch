@@ -1,0 +1,174 @@
+diff --git a/widget/uikit/GeckoEditableSupport.h b/widget/uikit/GeckoEditableSupport.h
+new file mode 100644
+index 000000000000..852759e0f418
+--- /dev/null
++++ b/widget/uikit/GeckoEditableSupport.h
+@@ -0,0 +1,168 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++/* This source code is introduced during the work of an iOS 13+ browser
++ * https://github.com/minh-ton/reynard-browser in Feb 2026. */
++
++#ifndef mozilla_widget_GeckoEditableSupport_h
++#define mozilla_widget_GeckoEditableSupport_h
++
++#import <UIKit/UIKit.h>
++
++#include <cmath>
++
++#include "Units.h"
++
++@protocol ChildViewCredentialDelegate;
++
++// MARK: - UITextInput Model Objects
++
++@interface ChildViewTextPosition : UITextPosition <NSCopying>
++@property(nonatomic, assign) NSUInteger offset;
++@property(nonatomic, assign) UITextStorageDirection affinity;
+++ (instancetype)positionWithOffset:(NSUInteger)offset;
+++ (instancetype)positionWithOffset:(NSUInteger)offset
++                          affinity:(UITextStorageDirection)affinity;
++@end
++
++@interface ChildViewTextRange : UITextRange <NSCopying>
++@property(nonatomic, retain) ChildViewTextPosition* startPosition;
++@property(nonatomic, retain) ChildViewTextPosition* endPosition;
+++ (instancetype)rangeWithStart:(ChildViewTextPosition*)aStart
++                           end:(ChildViewTextPosition*)aEnd;
++@end
++
++@interface ChildViewTextSelectionRect : UITextSelectionRect
++@property(nonatomic, assign) CGRect rectValue;
++@property(nonatomic, assign) CGAffineTransform transformValue;
++@property(nonatomic, assign) NSWritingDirection writingDirectionValue;
++@property(nonatomic, assign) BOOL containsStartValue;
++@property(nonatomic, assign) BOOL containsEndValue;
++@property(nonatomic, assign) BOOL verticalValue;
+++ (instancetype)selectionRectWithRect:(CGRect)aRect
++                        containsStart:(BOOL)aContainsStart
++                          containsEnd:(BOOL)aContainsEnd;
++@end
++
++// MARK: - Editable State
++
++struct GeckoEditableState {
++  UITextInputStringTokenizer* mTokenizer;
++  NSUndoManager* mUndoManager;
++  id mTextInputTraits;
++  BOOL mSeenHardwareKeyDownInNonEditableContent;
++  NSHashTable<id<UITextInputDelegate>>* mTextInputDelegates;
++  id<ChildViewCredentialDelegate> mCredentialDelegate;
++  NSDictionary* mMarkedTextStyle;
++  NSMutableAttributedString* mTextAnnotations;
++  UITextInteraction* mEditableTextInteraction;
++  UITextInteraction* mReadOnlyTextInteraction;
++  id mTextInteractionAssistantDelegate;
++  BOOL mShowingTextStyleOptions;
++  BOOL mPendingCaretMenu;
++  NSTimer* mTextAutoscrollTimer;
++  CGPoint mTextAutoscrollPoint;
++  CGPoint mFloatingCursorPoint;
++  BOOL mFloatingCursorActive;
++
++  UIDragInteraction* mTextDragInteraction;
++  UIDropInteraction* mTextDropInteraction;
++  id<UIDragSession> mTextDragSession;
++  id<UIDropSession> mTextDropSession;
++  NSArray<UIDragItem*>* mTextDragItems;
++  UIView* mTextDragPreview;
++  BOOL mLoadingTextDrop;
++
++  BOOL mPendingSelectionGeometryRefresh;
++  BOOL mPendingKeyboardContextUpdate;
++  BOOL mSelectionActivated;
++  BOOL mAsyncScrollInProgress;
++  BOOL mPreparingBackwardDeletionSelection;
++  id mSelectionHandleSuppressionAssertion;
++  UITextStorageDirection mSelectionAffinity;
++};
++
++// MARK: - Coordinate Conversion Utilities
++
++inline mozilla::LayoutDeviceIntPoint UIKitPointsToDevPixels(
++    CGPoint aPoint, CGFloat aBackingScale) {
++  return mozilla::LayoutDeviceIntPoint(
++      static_cast<int32_t>(std::lround(aPoint.x * aBackingScale)),
++      static_cast<int32_t>(std::lround(aPoint.y * aBackingScale)));
++}
++
++inline CGRect DevPixelsToUIKitPoints(const mozilla::LayoutDeviceRect& aRect,
++                                     CGFloat aBackingScale) {
++  return CGRectMake((CGFloat)aRect.x / aBackingScale,
++                    (CGFloat)aRect.y / aBackingScale,
++                    (CGFloat)aRect.width / aBackingScale,
++                    (CGFloat)aRect.height / aBackingScale);
++}
++
++inline CGRect DevPixelsToUIKitPoints(const mozilla::LayoutDeviceIntRect& aRect,
++                                     CGFloat aBackingScale) {
++  return DevPixelsToUIKitPoints(
++      mozilla::LayoutDeviceRect(aRect.x, aRect.y, aRect.width, aRect.height),
++      aBackingScale);
++}
++
++// MARK: - Geometry Utilities
++
++inline bool ClipCGRectToBounds(CGRect& aRect, const CGRect& aBounds) {
++  if (CGRectIsNull(aRect) || CGRectIsEmpty(aRect) || CGRectIsNull(aBounds) ||
++      CGRectIsEmpty(aBounds)) {
++    aRect = CGRectZero;
++    return false;
++  }
++
++  CGRect clippedRect =
++      CGRectIntersection(CGRectStandardize(aRect), CGRectStandardize(aBounds));
++  if (CGRectIsNull(clippedRect) || CGRectIsEmpty(clippedRect)) {
++    aRect = CGRectZero;
++    return false;
++  }
++
++  aRect = clippedRect;
++  return true;
++}
++
++// MARK: - Credential Utilities
++
++inline NSInteger EffectiveOriginPort(NSURLComponents* aComponents) {
++  if (aComponents.port) {
++    return aComponents.port.integerValue;
++  }
++  NSString* scheme = aComponents.scheme.lowercaseString;
++  if ([scheme isEqualToString:@"http"]) {
++    return 80;
++  }
++  if ([scheme isEqualToString:@"https"]) {
++    return 443;
++  }
++  return NSNotFound;
++}
++
++inline BOOL CredentialOriginsMatch(NSURL* aDocumentURL,
++                                   NSString* aExpectedOrigin) {
++  NSURLComponents* documentOrigin =
++      [NSURLComponents componentsWithURL:aDocumentURL
++                 resolvingAgainstBaseURL:NO];
++  NSURLComponents* expectedOrigin =
++      [NSURLComponents componentsWithString:aExpectedOrigin];
++  NSString* documentScheme = documentOrigin.scheme.lowercaseString;
++  NSString* expectedScheme = expectedOrigin.scheme.lowercaseString;
++  NSString* documentHost = documentOrigin.host.lowercaseString;
++  NSString* expectedHost = expectedOrigin.host.lowercaseString;
++  if (!documentScheme || !expectedScheme || !documentHost || !expectedHost) {
++    return NO;
++  }
++  if (![documentScheme isEqualToString:expectedScheme] ||
++      ![documentHost isEqualToString:expectedHost]) {
++    return NO;
++  }
++  return EffectiveOriginPort(documentOrigin) ==
++         EffectiveOriginPort(expectedOrigin);
++}
++
++#endif  // mozilla_widget_GeckoEditableSupport_h

@@ -1,0 +1,14 @@
+diff --git a/toolkit/modules/ActorManagerParent.sys.mjs b/toolkit/modules/ActorManagerParent.sys.mjs
+index 4b6ed27171be..75146cb98940 100644
+--- a/toolkit/modules/ActorManagerParent.sys.mjs
++++ b/toolkit/modules/ActorManagerParent.sys.mjs
+@@ -714,7 +714,9 @@ if (AppConstants.platform != "android") {
+     allFrames: true,
+     safeForUntrustedWebProcess: true,
+   };
++}
+ 
++if (AppConstants.platform != "android" && AppConstants.platform != "ios") {
+   // Note that GeckoView has another implementation in mobile/android/actors.
+   JSWINDOWACTORS.Select = {
+     parent: {

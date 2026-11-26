@@ -1,0 +1,21 @@
+diff --git a/widget/moz.build b/widget/moz.build
+index 5aaa7796e1f5..44f68f9fbc69 100644
+--- a/widget/moz.build
++++ b/widget/moz.build
+@@ -193,6 +193,7 @@ EXPORTS.mozilla += [
+     "MiscEvents.h",
+     "MouseEvents.h",
+     "NativeKeyBindingsType.h",
++    "NativeTextInput.h",
+     "SwipeTracker.h",
+     "TextEventDispatcher.h",
+     "TextEventDispatcherListener.h",
+@@ -391,7 +392,7 @@ elif toolkit == "android":
+         "android/PlatformWidgetTypes.ipdlh",
+         "headless/HeadlessWidgetTypes.ipdlh",
+     ]
+-elif toolkit == "cocoa":
++elif toolkit in ("cocoa", "uikit"):
+     IPDL_SOURCES = [
+         "cocoa/PCompositorWidget.ipdl",
+         "cocoa/PlatformWidgetTypes.ipdlh",

@@ -1,0 +1,57 @@
+diff --git a/docshell/base/BrowsingContext.h b/docshell/base/BrowsingContext.h
+index ba4d98522b7c..7eb02d5add24 100644
+--- a/docshell/base/BrowsingContext.h
++++ b/docshell/base/BrowsingContext.h
+@@ -262,6 +262,12 @@ struct EmbedderColorSchemes {
+         {.mCanSet = CanSet::EmbedderOnly, .mDefault = [] { return true; }})    \
+   FIELD(PlatformOverride, nsString,                                            \
+         {.mTopOnly = true, .mCanSet = CanSet::Custom})                         \
++  FIELD(AppVersionOverride, nsString,                                         \
++        {.mTopOnly = true, .mCanSet = CanSet::Custom})                         \
++  FIELD(OscpuOverride, nsString,                                              \
++        {.mTopOnly = true, .mCanSet = CanSet::Custom})                         \
++  FIELD(BuildIDOverride, nsString,                                            \
++        {.mTopOnly = true, .mCanSet = CanSet::Custom})                         \
+   /* Specifies if this BC has loaded documents besides the initial             \
+    * about:blank document. about:privatebrowsing, about:home, about:newtab     \
+    * and non-initial about:blank are not considered to be initial              \
+@@ -961,6 +967,19 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
+   }
+   void SetCustomPlatform(const nsAString& aPlatform, ErrorResult& aRv);
+ 
++  void GetCustomAppVersion(nsAString& aAppVersion) {
++    aAppVersion = Top()->GetAppVersionOverride();
++  }
++  void SetCustomAppVersion(const nsAString& aAppVersion, ErrorResult& aRv);
++
++  void GetCustomOscpu(nsAString& aOscpu) { aOscpu = Top()->GetOscpuOverride(); }
++  void SetCustomOscpu(const nsAString& aOscpu, ErrorResult& aRv);
++
++  void GetCustomBuildID(nsAString& aBuildID) {
++    aBuildID = Top()->GetBuildIDOverride();
++  }
++  void SetCustomBuildID(const nsAString& aBuildID, ErrorResult& aRv);
++
+   JSObject* WrapObject(JSContext* aCx);
+ 
+   static JSObject* ReadStructuredClone(JSContext* aCx,
+@@ -1462,6 +1481,19 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
+                       const nsString& aPlatformOverride,
+                       ContentParent* aSource);
+ 
++  void DidSet(FieldIndex<IDX_AppVersionOverride>);
++  CanSetResult CanSet(FieldIndex<IDX_AppVersionOverride>,
++                      const nsString& aAppVersionOverride,
++                      ContentParent* aSource);
++
++  void DidSet(FieldIndex<IDX_OscpuOverride>);
++  CanSetResult CanSet(FieldIndex<IDX_OscpuOverride>,
++                      const nsString& aOscpuOverride, ContentParent* aSource);
++
++  void DidSet(FieldIndex<IDX_BuildIDOverride>);
++  CanSetResult CanSet(FieldIndex<IDX_BuildIDOverride>,
++                      const nsString& aBuildIDOverride, ContentParent* aSource);
++
+   void DidSet(FieldIndex<IDX_UserAgentOverride>);
+   CanSetResult CanSet(FieldIndex<IDX_UserAgentOverride>,
+                       const nsCString& aUserAgent, ContentParent* aSource);

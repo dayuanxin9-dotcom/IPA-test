@@ -1,0 +1,30 @@
+diff --git a/gfx/webrender_bindings/WebRenderAPI.cpp b/gfx/webrender_bindings/WebRenderAPI.cpp
+index fc9b42d34f16..55ea6fea4101 100644
+--- a/gfx/webrender_bindings/WebRenderAPI.cpp
++++ b/gfx/webrender_bindings/WebRenderAPI.cpp
+@@ -210,6 +210,12 @@ void TransactionWrapper::AddMinimapData(const wr::ExternalScrollId& aScrollId,
+   wr_transaction_add_minimap_data(mTxn, aScrollId, aMinimapData);
+ }
+ 
++void TransactionWrapper::Notify(wr::Checkpoint aWhen,
++                                UniquePtr<NotificationHandler> aHandler) {
++  wr_transaction_notify(mTxn, aWhen,
++                        reinterpret_cast<uintptr_t>(aHandler.release()));
++}
++
+ /*static*/
+ RefPtr<WebRenderAPI::CreatePromise> WebRenderAPI::Create(
+     RefPtr<layers::CompositorBridgeParent> aBridge,
+@@ -1169,8 +1175,10 @@ void TransactionBuilder::AddRawFont(wr::FontKey aKey, wr::Vec<uint8_t>& aBytes,
+ 
+ void TransactionBuilder::AddFontDescriptor(wr::FontKey aKey,
+                                            wr::Vec<uint8_t>& aBytes,
+-                                           uint32_t aIndex) {
+-  wr_resource_updates_add_font_descriptor(mTxn, aKey, &aBytes.inner, aIndex);
++                                           uint32_t aIndex, bool aIsSystemFont,
++                                           uint32_t aSystemFontTraits) {
++  wr_resource_updates_add_font_descriptor(mTxn, aKey, &aBytes.inner, aIndex,
++                                          aIsSystemFont, aSystemFontTraits);
+ }
+ 
+ void TransactionBuilder::DeleteFont(wr::FontKey aKey) {

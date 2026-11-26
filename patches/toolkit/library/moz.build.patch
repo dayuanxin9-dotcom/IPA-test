@@ -1,0 +1,24 @@
+diff --git a/toolkit/library/moz.build b/toolkit/library/moz.build
+index 671c32b2d8e2..0ae7767856a0 100644
+--- a/toolkit/library/moz.build
++++ b/toolkit/library/moz.build
+@@ -243,11 +243,19 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
+ 
+ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
+     OS_LIBS += [
++        "-framework CoreLocation",
++        "-framework CoreMIDI",
++        "-framework CoreMotion",
+         "-framework CoreGraphics",
+         "-framework CoreText",
+         "-framework OpenGLES",
+     ]
+ 
++    OS_LIBS += [
++        "-L" + CONFIG["IOS_COMPILER_RT"].rsplit("/", 1)[0],
++        "clang_rt.iossim" if CONFIG["IPHONEOS_IS_SIMULATOR"] else "clang_rt.ios",
++    ]
++
+ if CONFIG["MOZ_WMF"]:
+     OS_LIBS += [
+         "mfuuid",

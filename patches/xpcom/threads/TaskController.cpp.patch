@@ -1,0 +1,13 @@
+diff --git a/xpcom/threads/TaskController.cpp b/xpcom/threads/TaskController.cpp
+index 531c21cdba01..543429ab52ae 100644
+--- a/xpcom/threads/TaskController.cpp
++++ b/xpcom/threads/TaskController.cpp
+@@ -59,7 +59,7 @@ int32_t TaskController::GetPoolThreadCount() {
+   }
+ 
+   int32_t numCores = 0;
+-#if defined(XP_MACOSX) && defined(__aarch64__)
++#if defined(XP_IOS) || (defined(XP_MACOSX) && defined(__aarch64__))
+   if (const auto& cpuInfo = hal::GetHeterogeneousCpuInfo()) {
+     // -1 because of the main thread.
+     numCores = cpuInfo->mBigCpus.Count() + cpuInfo->mMediumCpus.Count() - 1;

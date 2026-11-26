@@ -1,0 +1,56 @@
+name: Build Chrome Gecko (No WebKit) IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Initialize idevice submodule only
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive support/idevice
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Build idevice support library
+        run: |
+          chmod +x tools/development/build-idevice.sh tools/release/build-app.sh tools/release/create-ipa.sh browser/Scripts/AddGecko.sh
+          ./tools/development/build-idevice.sh
+
+      - name: Setup prebuilt Gecko 160.0 binaries and headers
+        run: python3 tools/setup-prebuilt-gecko.py
+
+      - name: Build Chrome Gecko App (.xcarchive)
+        run: ./tools/release/build-app.sh --no-signing
+
+      - name: Package IPA
+        run: |
+          ./tools/release/create-ipa.sh
+          cp dist/Reynard.ipa dist/ChromeGecko-NoWebKit.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChromeGecko-NoWebKit-IPA
+          path: dist/ChromeGecko-NoWebKit.ipa
+          if-no-files-found: error

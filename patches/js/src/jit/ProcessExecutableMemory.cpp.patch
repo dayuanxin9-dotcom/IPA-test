@@ -1,0 +1,576 @@
+diff --git a/js/src/jit/ProcessExecutableMemory.cpp b/js/src/jit/ProcessExecutableMemory.cpp
+index cea7d764ca96..b3ab704c140d 100644
+--- a/js/src/jit/ProcessExecutableMemory.cpp
++++ b/js/src/jit/ProcessExecutableMemory.cpp
+@@ -14,6 +14,14 @@
+ 
+ #include <errno.h>
+ 
++#ifdef XP_IOS
++#  include <libkern/OSCacheControl.h>
++#  include <mach/mach.h>
++#  include <signal.h>
++#endif
++
++#include "mozilla/widget/GeckoViewRuntimeSupport.h"
++
+ #include "jsfriendapi.h"
+ 
+ #include "gc/Memory.h"
+@@ -47,6 +55,99 @@
+ using namespace js;
+ using namespace js::jit;
+ 
++#ifdef XP_IOS
++static uint8_t* sExecutableMemoryBase = nullptr;
++static uint8_t* sWritableExecutableMemoryBase = nullptr;
++
++static mozilla::Atomic<bool, mozilla::Relaxed> sHasTXMSupport(false);
++static mozilla::Atomic<int32_t, mozilla::Relaxed> sDeviceOSMajorVersion(0);
++static mozilla::Atomic<int32_t, mozilla::Relaxed> sDeviceOSMinorVersion(0);
++static mozilla::Atomic<int32_t, mozilla::Relaxed> sDeviceOSPatchVersion(0);
++
++extern "C" void* __mmap(void* addr, size_t len, int prot, int flags, int fd,
++                        off_t offset);
++
++void* reynard_mmap(void* addr, size_t len, int prot, int flags, int fd,
++                   off_t offset) {
++  void* map = __mmap(addr, len, prot, flags, fd, offset);
++  // Handle some cases where it will still map but without executable permission
++  if (mprotect(map, len, prot) == -1) {
++    munmap(map, len);
++    map = MAP_FAILED;
++  }
++  return map;
++}
++
++__attribute__((noinline, optnone, naked)) void* RequestDebuggerToPrepareRegion(
++    void* addr, size_t len) {
++  asm("mov x16, #1 \n"
++      "brk #0xf00d \n"
++      "ret");
++}
++
++static void* WritableAliasForExecutableAddress(void* addr, size_t bytes) {
++  if (!sWritableExecutableMemoryBase || !sExecutableMemoryBase) {
++    return addr;
++  }
++
++  auto* executable = static_cast<uint8_t*>(addr);
++  MOZ_RELEASE_ASSERT(executable >= sExecutableMemoryBase &&
++                     executable + bytes <=
++                         sExecutableMemoryBase + ExecutableMemoryCapacity());
++  return sWritableExecutableMemoryBase + (executable - sExecutableMemoryBase);
++}
++
++static void PrepareExecutableRegionForExecution(void* aAddress, size_t aSize) {
++  if (!aAddress || !aSize) {
++    return;
++  }
++
++  sys_cache_control(kCacheFunctionPrepareForExecution, aAddress, aSize);
++}
++
++static void PrepareExecutableRegionForWriting(void* aAddress, size_t aSize) {
++  if (!aAddress || !aSize) {
++    return;
++  }
++
++  if (sHasTXMSupport) {
++    RequestDebuggerToPrepareRegion(aAddress, aSize);
++  }
++}
++
++static bool SetAliasProtection(void* executableAddress, void* writableAddress,
++                               size_t bytes, ProtectionSetting protection) {
++  if (!sHasTXMSupport) {
++    if (protection == ProtectionSetting::Writable) {
++      return vm_protect(mach_task_self(),
++                        reinterpret_cast<vm_address_t>(writableAddress), bytes,
++                        false, VM_PROT_READ | VM_PROT_WRITE) == KERN_SUCCESS;
++    }
++    sys_dcache_flush(writableAddress, bytes);
++    sys_icache_invalidate(executableAddress, bytes);
++    return true;
++  }
++
++  switch (protection) {
++    case ProtectionSetting::Writable:
++      if (vm_protect(mach_task_self(),
++                     reinterpret_cast<vm_address_t>(writableAddress), bytes,
++                     false, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS) {
++        return false;
++      }
++      return mprotect(executableAddress, bytes, PROT_READ | PROT_EXEC) == 0;
++    case ProtectionSetting::Executable:
++      if (vm_protect(mach_task_self(),
++                     reinterpret_cast<vm_address_t>(writableAddress), bytes,
++                     false, VM_PROT_READ) != KERN_SUCCESS) {
++        return false;
++      }
++      return mprotect(executableAddress, bytes, PROT_READ | PROT_EXEC) == 0;
++  }
++  MOZ_CRASH();
++}
++#endif
++
+ #ifdef XP_WIN
+ #  if defined(HAVE_64BIT_BUILD)
+ #    define NEED_JIT_UNWIND_HANDLING
+@@ -463,6 +564,20 @@ static void* ComputeRandomAllocationAddress() {
+ static void DecommitPages(void* addr, size_t bytes);
+ 
+ static void* ReserveProcessExecutableMemory(size_t bytes) {
++#  ifdef XP_IOS
++  void* randomAddr = ComputeRandomAllocationAddress();
++  unsigned protection = PROT_READ | PROT_EXEC;
++  unsigned flags = MAP_NORESERVE | MAP_PRIVATE | MAP_ANON;
++
++  // Modifying exec page during execution may cause SIGBUS on some devices.
++  signal(SIGBUS, SIG_IGN);
++
++  void* p = reynard_mmap(randomAddr, bytes, protection, flags, -1, 0);
++  if (p == MAP_FAILED) {
++    return nullptr;
++  }
++  return p;
++#  else
+   // On most Unix platforms our strategy is as follows:
+   //
+   // * Reserve:  mmap with PROT_NONE
+@@ -507,21 +622,22 @@ static void* ReserveProcessExecutableMemory(size_t bytes) {
+   void* randomAddr = ComputeRandomAllocationAddress();
+   unsigned protection = PROT_NONE;
+   unsigned flags = MAP_NORESERVE | MAP_PRIVATE | MAP_ANON;
+-#  if defined(XP_DARWIN)
++#    if defined(XP_DARWIN)
+   flags |= MAP_JIT;
+-#    if defined(JS_USE_APPLE_FAST_WX)
++#      if defined(JS_USE_APPLE_FAST_WX)
+   protection = PROT_READ | PROT_WRITE | PROT_EXEC;
++#      endif
+ #    endif
+-#  endif
+   void* p = MozTaggedAnonymousMmap(randomAddr, bytes, protection, flags, -1, 0,
+                                    "js-executable-memory");
+   if (p == MAP_FAILED) {
+     return nullptr;
+   }
+-#  if defined(XP_DARWIN)
++#    if defined(XP_DARWIN)
+   DecommitPages(p, bytes);
+-#  endif
++#    endif
+   return p;
++#  endif
+ }
+ 
+ static void DeallocateProcessExecutableMemory(void* addr, size_t bytes) {
+@@ -561,8 +677,30 @@ static unsigned ProtectionSettingToFlags(ProtectionSetting protection) {
+ 
+ [[nodiscard]] static bool CommitPages(void* addr, size_t bytes,
+                                       ProtectionSetting protection) {
++#  ifdef XP_IOS
++  // iOS 26+
++  if (sDeviceOSMajorVersion >= 26) {
++    void* writable = WritableAliasForExecutableAddress(addr, bytes);
++    if (!SetAliasProtection(addr, writable, bytes, protection)) {
++      return false;
++    }
++    PrepareExecutableRegionForWriting(addr, bytes);
++  } else {
++    // Pre-iOS 26
++    unsigned flags = ProtectionSettingToFlags(protection);
++    if (mprotect(addr, bytes, flags)) {
++      return false;
++    }
++  }
++
++  if (protection == ProtectionSetting::Executable) {
++    PrepareExecutableRegionForExecution(addr, bytes);
++  }
++
++  return true;
++#  else
+   // See the comment in ReserveProcessExecutableMemory.
+-#  if defined(XP_DARWIN)
++#    if defined(XP_DARWIN)
+   int ret;
+   do {
+     ret = madvise(addr, bytes, MADV_FREE_REUSE);
+@@ -570,14 +708,14 @@ static unsigned ProtectionSettingToFlags(ProtectionSetting protection) {
+   if (ret != 0) {
+     return false;
+   }
+-#    if !defined(JS_USE_APPLE_FAST_WX)
++#      if !defined(JS_USE_APPLE_FAST_WX)
+   unsigned flags = ProtectionSettingToFlags(protection);
+   if (mprotect(addr, bytes, flags)) {
+     return false;
+   }
+-#    endif
++#      endif
+   return true;
+-#  else
++#    else
+   unsigned flags = ProtectionSettingToFlags(protection);
+   void* p = MozTaggedAnonymousMmap(addr, bytes, flags,
+                                    MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0,
+@@ -587,28 +725,51 @@ static unsigned ProtectionSettingToFlags(ProtectionSetting protection) {
+   }
+   MOZ_RELEASE_ASSERT(p == addr);
+   return true;
++#    endif
+ #  endif
+ }
+ 
+ static void DecommitPages(void* addr, size_t bytes) {
++#  ifdef XP_IOS
++  if (!addr || !bytes || !sExecutableMemoryBase) {
++    return;
++  }
++
++  // iOS 26+
++  if (sDeviceOSMajorVersion >= 26) {
++    void* writable = WritableAliasForExecutableAddress(addr, bytes);
++    kern_return_t kret =
++        vm_protect(mach_task_self(), reinterpret_cast<vm_address_t>(writable),
++                   bytes, false, VM_PROT_NONE);
++    MOZ_RELEASE_ASSERT(kret == KERN_SUCCESS);
++    if (!sHasTXMSupport) {
++      return;
++    }
++  }
++
++  int ret = mprotect(addr, bytes, PROT_NONE);
++  MOZ_RELEASE_ASSERT(ret == 0);
++
++#  else
+   // See the comment in ReserveProcessExecutableMemory.
+-#  if defined(XP_DARWIN)
++#    if defined(XP_DARWIN)
+   int ret;
+-#    if !defined(JS_USE_APPLE_FAST_WX)
++#      if !defined(JS_USE_APPLE_FAST_WX)
+   ret = mprotect(addr, bytes, PROT_NONE);
+   MOZ_RELEASE_ASSERT(ret == 0);
+-#    endif
++#      endif
+   do {
+     ret = madvise(addr, bytes, MADV_FREE_REUSABLE);
+   } while (ret != 0 && errno == EAGAIN);
+   MOZ_RELEASE_ASSERT(ret == 0);
+-#  else
++#    else
+   // Use mmap with MAP_FIXED and PROT_NONE. Inspired by jemalloc's
+   // pages_decommit.
+   void* p = MozTaggedAnonymousMmap(addr, bytes, PROT_NONE,
+                                    MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0,
+                                    "js-executable-memory");
+   MOZ_RELEASE_ASSERT(addr == p);
++#    endif
+ #  endif
+ }
+ #endif
+@@ -662,8 +823,8 @@ class PageBitSet {
+ #endif
+ };
+ 
+-// Per-process executable memory allocator. It reserves a block of memory of
+-// MaxCodeBytesPerProcess bytes, then allocates/deallocates pages from that.
++// Per-process executable memory allocator. It reserves a block of memory of up
++// to MaxCodeBytesPerProcess bytes, then allocates/deallocates pages from that.
+ //
+ // This has a number of benefits compared to raw mmap/VirtualAlloc:
+ //
+@@ -684,11 +845,12 @@ class ProcessExecutableMemory {
+   static const size_t MaxCodePages =
+       MaxCodeBytesPerProcess / ExecutableCodePageSize;
+ 
+-  // Start of the MaxCodeBytesPerProcess memory block or nullptr if
+-  // uninitialized. Note that this is NOT guaranteed to be aligned to
+-  // ExecutableCodePageSize.
++  // Start of the reserved memory block or nullptr if uninitialized.
++  // Note that this is NOT guaranteed to be aligned to ExecutableCodePageSize.
+   uint8_t* base_;
+ 
++  size_t capacity_;
++
+   // The fields below should only be accessed while we hold the lock.
+   Mutex lock_ MOZ_UNANNOTATED;
+ 
+@@ -702,9 +864,13 @@ class ProcessExecutableMemory {
+   mozilla::Maybe<mozilla::non_crypto::XorShift128PlusRNG> rng_;
+   PageBitSet<MaxCodePages> pages_;
+ 
++  size_t maxPages() const { return capacity_ / ExecutableCodePageSize; }
++  [[nodiscard]] bool reserve(size_t bytes);
++
+  public:
+   ProcessExecutableMemory()
+       : base_(nullptr),
++        capacity_(MaxCodeBytesPerProcess),
+         lock_(mutexid::ProcessExecutableRegion),
+         pagesAllocated_(0),
+         cursor_(0),
+@@ -717,13 +883,26 @@ class ProcessExecutableMemory {
+     MOZ_RELEASE_ASSERT(HasJitBackend());
+     MOZ_RELEASE_ASSERT(gc::SystemPageSize() <= ExecutableCodePageSize);
+ 
+-    void* p = ReserveProcessExecutableMemory(MaxCodeBytesPerProcess);
+-    if (!p) {
++    if (!reserve(MaxCodeBytesPerProcess)) {
++#ifdef XP_IOS
++      // First we try MaxCodeBytesPerProcess, which is 2044 MiB. This fallback
++      // exists because:
++      //
++      // * For devices with ≤ 3 GiB of RAM, the default VA space is smaller,
++      // so reserving a 2044 MiB block may fail. The extended VA entitlement
++      // can expand this space on iOS 14+, but is unavailable on iOS 13.
++      // https://github.com/apple-oss-distributions/xnu/blob/xnu-11417.140.69/osfmk/arm/pmap/pmap.c#L11854
++      //
++      // * So we retry with 1024 MiB if the full reservation fails. Processes
++      // that successfully reserve 2044 MiB keep the original limit.
++      if (!reserve(1024 * 1024 * 1024)) {
++        return false;
++      }
++#else
+       return false;
++#endif
+     }
+ 
+-    base_ = static_cast<uint8_t*>(p);
+-
+     mozilla::Array<uint64_t, 2> seed;
+     GenerateXorShift128PlusSeed(seed);
+     rng_.emplace(seed[0], seed[1]);
+@@ -734,8 +913,10 @@ class ProcessExecutableMemory {
+ 
+   bool initialized() const { return base_ != nullptr; }
+ 
++  size_t capacity() const { return capacity_; }
++
+   size_t bytesAllocated() const {
+-    MOZ_ASSERT(pagesAllocated_ <= MaxCodePages);
++    MOZ_ASSERT(pagesAllocated_ <= maxPages());
+     return pagesAllocated_ * ExecutableCodePageSize;
+   }
+ 
+@@ -743,21 +924,34 @@ class ProcessExecutableMemory {
+     MOZ_ASSERT(initialized());
+     MOZ_ASSERT(pages_.empty());
+     MOZ_ASSERT(pagesAllocated_ == 0);
+-    DeallocateProcessExecutableMemory(base_, MaxCodeBytesPerProcess);
++
++#ifdef XP_IOS
++    // iOS 26+
++    if (sDeviceOSMajorVersion >= 26) {
++      kern_return_t result = vm_deallocate(
++          mach_task_self(),
++          reinterpret_cast<vm_address_t>(sWritableExecutableMemoryBase),
++          capacity_);
++      MOZ_RELEASE_ASSERT(result == KERN_SUCCESS);
++      sWritableExecutableMemoryBase = nullptr;
++    }
++    sExecutableMemoryBase = nullptr;
++#endif
++
++    DeallocateProcessExecutableMemory(base_, capacity_);
+     base_ = nullptr;
++    capacity_ = MaxCodeBytesPerProcess;
+     rng_.reset();
+     MOZ_ASSERT(!initialized());
+   }
+ 
+   void assertValidAddress(void* p, size_t bytes) const {
+     MOZ_RELEASE_ASSERT(p >= base_ &&
+-                       uintptr_t(p) + bytes <=
+-                           uintptr_t(base_) + MaxCodeBytesPerProcess);
++                       uintptr_t(p) + bytes <= uintptr_t(base_) + capacity_);
+   }
+ 
+   bool containsAddress(const void* p) const {
+-    return p >= base_ &&
+-           uintptr_t(p) < uintptr_t(base_) + MaxCodeBytesPerProcess;
++    return p >= base_ && uintptr_t(p) < uintptr_t(base_) + capacity_;
+   }
+ 
+   void* allocate(size_t bytes, ProtectionSetting protection,
+@@ -765,6 +959,54 @@ class ProcessExecutableMemory {
+   void deallocate(void* addr, size_t bytes, bool decommit);
+ };
+ 
++bool ProcessExecutableMemory::reserve(size_t bytes) {
++  void* p = ReserveProcessExecutableMemory(bytes);
++  if (!p) {
++    return false;
++  }
++
++#ifdef XP_IOS
++  if (sDeviceOSMajorVersion >= 26) {
++    // iOS 26+
++    vm_address_t mirrored = 0;
++    vm_prot_t cur_prot, max_prot;
++    kern_return_t ret =
++        vm_remap(mach_task_self(), &mirrored, bytes, 0, VM_FLAGS_ANYWHERE,
++                 mach_task_self(), reinterpret_cast<vm_address_t>(p), false,
++                 &cur_prot, &max_prot, VM_INHERIT_SHARE);
++
++    if (ret != KERN_SUCCESS) {
++      mozilla::DebugOnly<int> unmapResult = munmap(p, bytes);
++      MOZ_ASSERT(!unmapResult || errno == ENOMEM);
++      errno = int(ret);
++      return false;
++    }
++
++    if (vm_protect(mach_task_self(), mirrored, bytes, false, VM_PROT_NONE) !=
++        KERN_SUCCESS) {
++      vm_deallocate(mach_task_self(), mirrored, bytes);
++      mozilla::DebugOnly<int> unmapResult = munmap(p, bytes);
++      MOZ_ASSERT(!unmapResult || errno == ENOMEM);
++      return false;
++    }
++
++    sWritableExecutableMemoryBase = reinterpret_cast<uint8_t*>(mirrored);
++  } else {
++    // Pre-iOS 26
++    sWritableExecutableMemoryBase = nullptr;
++  }
++#endif
++
++  base_ = static_cast<uint8_t*>(p);
++  capacity_ = bytes;
++
++#ifdef XP_IOS
++  sExecutableMemoryBase = base_;
++#endif
++
++  return true;
++}
++
+ void* ProcessExecutableMemory::allocate(size_t bytes,
+                                         ProtectionSetting protection,
+                                         MemCheckKind checkKind) {
+@@ -779,21 +1021,21 @@ void* ProcessExecutableMemory::allocate(size_t bytes,
+   void* p = nullptr;
+   {
+     LockGuard<Mutex> guard(lock_);
+-    MOZ_ASSERT(pagesAllocated_ <= MaxCodePages);
++    MOZ_ASSERT(pagesAllocated_ <= maxPages());
+ 
+     // Check if we have enough pages available.
+-    if (pagesAllocated_ + numPages >= MaxCodePages) {
++    if (pagesAllocated_ + numPages >= maxPages()) {
+       return nullptr;
+     }
+ 
+-    MOZ_ASSERT(bytes <= MaxCodeBytesPerProcess);
++    MOZ_ASSERT(bytes <= capacity_);
+ 
+     // Maybe skip a page to make allocations less predictable.
+     size_t page = cursor_ + (rng_.ref().next() % 2);
+ 
+-    for (size_t i = 0; i < MaxCodePages; i++) {
++    for (size_t i = 0; i < maxPages(); i++) {
+       // Make sure page + numPages - 1 is a valid index.
+-      if (page + numPages > MaxCodePages) {
++      if (page + numPages > maxPages()) {
+         page = 0;
+       }
+ 
+@@ -815,7 +1057,7 @@ void* ProcessExecutableMemory::allocate(size_t bytes,
+       }
+ 
+       pagesAllocated_ += numPages;
+-      MOZ_ASSERT(pagesAllocated_ <= MaxCodePages);
++      MOZ_ASSERT(pagesAllocated_ <= maxPages());
+ 
+       // If we allocated a small number of pages, move cursor_ to the
+       // next page. We don't do this for larger allocations to avoid
+@@ -901,9 +1143,22 @@ bool js::jit::InitProcessExecutableMemory() { return execMemory.init(); }
+ 
+ void js::jit::ReleaseProcessExecutableMemory() { execMemory.release(); }
+ 
++size_t js::jit::ExecutableMemoryCapacity() { return execMemory.capacity(); }
++
++void js::jit::SetJITRuntimeInfo(const JITRuntimeInfo& aRuntimeInfo) {
++#ifdef XP_IOS
++  sHasTXMSupport = aRuntimeInfo.hasTXMSupport != 0;
++  sDeviceOSMajorVersion = aRuntimeInfo.deviceOSVersion.majorVersion;
++  sDeviceOSMinorVersion = aRuntimeInfo.deviceOSVersion.minorVersion;
++  sDeviceOSPatchVersion = aRuntimeInfo.deviceOSVersion.patchVersion;
++#else
++  (void)aRuntimeInfo;
++#endif
++}
++
+ size_t js::jit::LikelyAvailableExecutableMemory() {
+   // Round down available memory to the closest MB.
+-  return MaxCodeBytesPerProcess -
++  return execMemory.capacity() -
+          AlignBytes(execMemory.bytesAllocated(), 0x100000U);
+ }
+ 
+@@ -911,15 +1166,28 @@ bool js::jit::CanLikelyAllocateMoreExecutableMemory() {
+   // Use a 8 MB buffer.
+   static const size_t BufferSize = 8 * 1024 * 1024;
+ 
+-  MOZ_ASSERT(execMemory.bytesAllocated() <= MaxCodeBytesPerProcess);
++  MOZ_ASSERT(execMemory.bytesAllocated() <= execMemory.capacity());
+ 
+-  return execMemory.bytesAllocated() + BufferSize <= MaxCodeBytesPerProcess;
++  return execMemory.bytesAllocated() + BufferSize <= execMemory.capacity();
+ }
+ 
+ bool js::jit::AddressIsInExecutableMemory(const void* p) {
+   return execMemory.containsAddress(p);
+ }
+ 
++void* js::jit::WritableJitAllocationFromExecutable(void* start, size_t size) {
++#ifdef XP_IOS
++  // iOS 26+
++  if (sDeviceOSMajorVersion >= 26 && start &&
++      execMemory.containsAddress(start)) {
++    return WritableAliasForExecutableAddress(start, size);
++  }
++#else
++  (void)size;
++#endif
++  return start;
++}
++
+ bool js::jit::ReprotectRegion(void* start, size_t size,
+                               ProtectionSetting protection,
+                               MustFlushICache flushICache) {
+@@ -969,7 +1237,30 @@ bool js::jit::ReprotectRegion(void* start, size_t size,
+     return true;
+   }
+ 
+-#  ifdef JS_USE_APPLE_FAST_WX
++#  ifdef XP_IOS
++  if (sDeviceOSMajorVersion >= 26) {
++    // iOS 26+
++    void* writable = WritableAliasForExecutableAddress(pageStart, size);
++    if (!SetAliasProtection(pageStart, writable, size, protection)) {
++      return false;
++    }
++  } else {
++    // Pre-iOS 26
++    unsigned flags = ProtectionSettingToFlags(protection);
++    if (mprotect(pageStart, size, flags)) {
++      return false;
++    }
++  }
++
++  if (protection == ProtectionSetting::Executable) {
++    PrepareExecutableRegionForExecution(pageStart, size);
++  }
++
++  execMemory.assertValidAddress(pageStart, size);
++  return true;
++#  endif
++
++#  if defined(JS_USE_APPLE_FAST_WX) && !defined(XP_IOS)
+   MOZ_CRASH("writeProtectCode should always be false on Apple Silicon");
+ #  endif
+ 

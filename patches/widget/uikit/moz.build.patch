@@ -1,0 +1,76 @@
+diff --git a/widget/uikit/moz.build b/widget/uikit/moz.build
+index 3f86e230427a..fd216e214f72 100644
+--- a/widget/uikit/moz.build
++++ b/widget/uikit/moz.build
+@@ -8,35 +8,61 @@ with Files("**"):
+ with Files("*TextInput*"):
+     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
+ 
++with Files("GeckoEditableSupport.*"):
++    BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
++
+ EXPORTS += [
+     "IOSBridge.h",
+ ]
+ 
+ EXPORTS.mozilla.widget += [
++    "BackgroundColor.h",
++    "CompositorWidgetChild.h",
++    "CompositorWidgetParent.h",
+     "EventDispatcher.h",
++    "GeckoViewRuntimeSupport.h",
+     "GeckoViewSupport.h",
+     "IOSView.h",
+     "nsWindow.h",
++    "UIKitCompositorWidget.h",
+ ]
+ 
+ EXPORTS.GeckoView += [
++    "GeckoViewRuntimeSupport.h",
+     "GeckoViewSwiftSupport.h",
+ ]
+ 
+ SOURCES += [
++    "BackgroundColor.mm",
++    "CompositorWidgetChild.cpp",
++    "CompositorWidgetParent.cpp",
+     "EventDispatcher.mm",
++    "ExternalResponseService.mm",
++    "GeckoEditableSupport.mm",
++    "GeckoGamepadSupport.mm",
++    "GeckoKeyboardSupport.mm",
++    "GeckoPencilSupport.mm",
++    "GeckoPointerSupport.mm",
++    "GeckoTextDragSupport.mm",
++    "GeckoTouchSupport.mm",
++    "GeckoViewPrintSupport.mm",
+     "GfxInfo.cpp",
+     "IOSBridge.mm",
+     "MediaKeysEventSourceFactory.cpp",
+     "nsAppShell.mm",
+     "nsBidiKeyboard.mm",
++    "nsClipboard.mm",
++    "nsDeviceContextUIKit.mm",
++    "nsDragService.mm",
+     "nsLookAndFeel.mm",
+     "nsNativeThemeUIKit.mm",
++    "nsPrintSettingsServiceUIKit.mm",
+     "nsUserIdleServiceUIKit.cpp",
+     "nsWidgetFactory.mm",
+     "nsWindow.mm",
+     "ScreenHelperUIKit.mm",
+     "TextInputHandler.mm",
++    "UIKitCompositorWidget.cpp",
+     "UIKitUtils.mm",
+ ]
+ 
+@@ -55,6 +81,9 @@ XPCOM_MANIFESTS += [
+ ]
+ 
+ OS_LIBS += [
++    "-framework CoreGraphics",
++    "-framework CoreHaptics",
++    "-framework GameController",
+     "-framework UIKit",
+ ]
+ 
